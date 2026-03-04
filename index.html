@@ -191,70 +191,57 @@
         }
 
         snap.forEach(docSnap => {
-          const data = docSnap.data();
-          const url = data.url;
-          const publicId = data.publicId || docSnap.id;
-          const ownerId = data.ownerId || "(未知)";
-          const createdAt = data.createdAt?.toDate
-            ? data.createdAt.toDate().toLocaleString()
-            : "";
+  const data = docSnap.data();
+  const url = data.url;
+  const publicId = data.publicId || docSnap.id;
+  const ownerId = data.ownerId || "(未知)";
 
-          const div = document.createElement("div");
-          div.className = "photo-item";
+  const div = document.createElement("div");
+  div.className = "photo-item";
 
-          const img = document.createElement("img");
-          img.src = url;
-          img.alt = publicId;
+  const img = document.createElement("img");
+  img.src = url;
+  img.alt = publicId;
 
-          const nameDiv = document.createElement("div");
-          nameDiv.className = "photo-name";
-          nameDiv.textContent = publicId;
+  const btns = document.createElement("div");
+  btns.className = "photo-buttons";
 
-          const metaDiv = document.createElement("div");
-          metaDiv.className = "photo-meta";
-          metaDiv.textContent = "上傳者ID: " + ownerId + (createdAt ? " · " + createdAt : "");
+  // 下載按鈕
+  const downBtn = document.createElement("button");
+  downBtn.className = "btn-primary";
+  downBtn.textContent = "下載";
+  downBtn.addEventListener("click", () => {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = publicId + ".jpg";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  });
+  btns.appendChild(downBtn);
 
-          const btns = document.createElement("div");
-          btns.className = "photo-buttons";
+  // 只有 owner 才有刪除鈕
+  if (currentUser && ownerId === currentUser.uid) {
+    const delBtn = document.createElement("button");
+    delBtn.className = "btn-danger";
+    delBtn.textContent = "刪除";
+    delBtn.addEventListener("click", async () => {
+      if (!confirm("確定要刪除這張照片嗎？（目前只刪除清單紀錄）")) return;
+      try {
+        await deleteDoc(docSnap.ref);
+        await loadGallery();
+      } catch (e) {
+        console.error(e);
+        alert("刪除失敗：" + e.message);
+      }
+    });
+    btns.appendChild(delBtn);
+  }
 
-          // 下載按鈕
-          const downBtn = document.createElement("button");
-          downBtn.className = "btn-primary";
-          downBtn.textContent = "下載";
-          downBtn.addEventListener("click", () => {
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = publicId + ".jpg";
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-          });
-          btns.appendChild(downBtn);
-
-          // 只有 owner 才看得到刪除按鈕 [web:134]
-          if (currentUser && ownerId === currentUser.uid) {
-            const delBtn = document.createElement("button");
-            delBtn.className = "btn-danger";
-            delBtn.textContent = "刪除";
-            delBtn.addEventListener("click", async () => {
-              if (!confirm("確定要刪除這張照片嗎？")) return;
-              try {
-                await deleteDoc(docSnap.ref); // 刪 Firestore 紀錄
-                await loadGallery();
-              } catch (e) {
-                console.error(e);
-                alert("刪除失敗：" + e.message);
-              }
-            });
-            btns.appendChild(delBtn);
-          }
-
-          div.appendChild(img);
-          div.appendChild(nameDiv);
-          div.appendChild(metaDiv);
-          div.appendChild(btns);
-          gallery.appendChild(div);
-        });
+  div.appendChild(img);
+  div.appendChild(btns);
+  gallery.appendChild(div);
+});
       } catch (e) {
         console.error(e);
         setStatus("讀取照片失敗：" + e.message);
@@ -344,6 +331,7 @@
   </script>
 </body>
 </html>
+
 
 
 
