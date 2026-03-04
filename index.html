@@ -86,15 +86,11 @@
 
   <div class="card upload-area">
     <h2>上傳照片</h2>
-    <p style="font-size: 12px; color:#666;">
-      每台裝置第一次進來會自動建立一個「匿名帳號」，<br />
-      只有上傳這張照片的那個帳號可以刪除自己的照片。
-    </p>
     <input id="fileInput" type="file" accept="image/*" multiple />
     <br />
     <button id="uploadBtn" class="btn-primary">上傳選取的照片</button>
     <div id="uploadStatus" class="status"></div>
-    <p id="userInfo" class="status" style="font-size: 12px;"></p>
+    <p id="userInfo" class="status" style="font-size: 12px; display:none;"></p>
   </div>
 
   <div class="card">
@@ -348,6 +344,7 @@
   </script>
 </body>
 </html>
+
 
 
 
