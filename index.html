@@ -81,6 +81,22 @@
     }
   </style>
 </head>
+<div id="previewOverlay" style="
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.85);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+">
+  <img id="previewImage" src="" alt="預覽" style="
+    max-width: 90%;
+    max-height: 90%;
+    box-shadow: 0 0 20px rgba(0,0,0,0.6);
+    border-radius: 8px;
+  ">
+</div>
 <body>
   <h1>Wedding 照片上傳與下載</h1>
 
@@ -100,6 +116,32 @@
   </div>
 
   <script type="module">
+    async function downloadImage(url, filename) {
+  try {
+    const res = await fetch(url, { mode: 'cors' });
+    if (!res.ok) throw new Error('下載失敗：' + res.status);
+    const blob = await res.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = filename || 'photo.jpg';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(blobUrl);
+  } catch (e) {
+    console.error(e);
+    alert('下載失敗，請稍後再試');
+  }
+}
+    const previewOverlay = document.getElementById("previewOverlay");
+const previewImage   = document.getElementById("previewImage");
+
+// 點黑底關掉預覽
+previewOverlay.addEventListener("click", () => {
+  previewOverlay.style.display = "none";
+  previewImage.src = "";
+});
     // ===== Cloudinary 設定 =====
     const CLOUD_NAME    = "dc1cbrfs8";        // 你的 cloud name
     const UPLOAD_PRESET = "wedding-photos"; // unsigned upload preset 名稱
@@ -202,6 +244,10 @@
   const img = document.createElement("img");
   img.src = url;
   img.alt = publicId;
+  img.addEventListener("click", () => {
+  previewImage.src = url;
+  previewOverlay.style.display = "flex"; // 顯示全螢幕預覽
+});
 
   const btns = document.createElement("div");
   btns.className = "photo-buttons";
@@ -211,13 +257,8 @@
   downBtn.className = "btn-primary";
   downBtn.textContent = "下載";
   downBtn.addEventListener("click", () => {
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = publicId + ".jpg";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  });
+  downloadImage(url, publicId + ".jpg");
+});
   btns.appendChild(downBtn);
 
   // 只有 owner 才有刪除鈕
@@ -226,7 +267,7 @@
     delBtn.className = "btn-danger";
     delBtn.textContent = "刪除";
     delBtn.addEventListener("click", async () => {
-      if (!confirm("確定要刪除這張照片嗎？（目前只刪除清單紀錄）")) return;
+      if (!confirm("確定要刪除這張照片嗎？")) return;
       try {
         await deleteDoc(docSnap.ref);
         await loadGallery();
@@ -331,6 +372,7 @@
   </script>
 </body>
 </html>
+
 
 
 
