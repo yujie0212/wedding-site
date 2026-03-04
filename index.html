@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <title>Wedding 照片上傳與下載</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 16px;
+      background: #f5f5f5;
+    }
+    h1, h2 { text-align: center; }
+    .card {
+      background: #fff;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+    }
+    .upload-area { text-align: center; }
+    .upload-area input[type="file"] { margin: 8px 0; }
+    button {
+      border: none;
+      border-radius: 4px;
+      padding: 8px 12px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .btn-primary { background: #1976d2; color: #fff; }
+    .btn-primary:disabled { background: #90caf9; cursor: default; }
+    .btn-danger { background: #e53935; color: #fff; }
+    .gallery {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 12px;
+    }
+    .photo-item {
+      background: #fff;
+      border-radius: 8px;
+      padding: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .photo-item img {
+      width: 100%;
+      height: 150px;
+      object-fit: cover;
+      border-radius: 4px;
+    }
+    .photo-name {
+      font-size: 12px;
+      color: #555;
+      word-break: break-all;
+    }
+    .photo-buttons {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .status {
+      font-size: 13px;
+      color: #555;
+      text-align: center;
+      margin-top: 8px;
+    }
+    .empty {
+      text-align: center;
+      color: #777;
+      margin-top: 12px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Wedding 照片上傳與下載</h1>
+
+  <div class="card upload-area">
+    <h2>上傳照片</h2>
+    <input id="fileInput" type="file" accept="image/*" multiple />
+    <br />
+    <button id="uploadBtn" class="btn-primary">上傳選取的照片</button>
+    <div id="uploadStatus" class="status"></div>
+    <p style="font-size: 12px; color:#666; margin-top:8px;">
+      手機可以直接選相簿或用相機拍照。<br />
+      照片會存到 Cloudinary，照片清單存到 Firebase Firestore，<br />
+      所有裝置打開同一個網址都會看到同一批照片。
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>所有已上傳照片</h2>
+    <div id="gallery" class="gallery"></div>
+    <p id="emptyMsg" class="empty" style="display:none;">目前沒有任何照片。</p>
+  </div>
+
+  <!-- Cloudinary + Firebase (Firestore) -->
+  <script type="module">
+    // ===== Cloudinary 設定（改成你的）=====
+    const CLOUD_NAME    = "dc1cbrfs8";        // 你的 cloud name
+    const UPLOAD_PRESET = "wedding_unsigned"; // 你剛建立的 unsigned preset 名稱
+    const FOLDER        = "wedding-photos";   // 選擇的資料夾名稱
+
+    // ===== Firebase 設定（這裡貼回你原本的 firebaseConfig）=====
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
+    import {
+      getFirestore,
+      collection,
+      addDoc,
+      getDocs,
+      query,
+      orderBy,
+      serverTimestamp
+    } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyBzK8lLQTr_Z3dn-TNOUslX1sAw3PV9TY0",
+      authDomain: "wedding-ef203.firebaseapp.com",
+      projectId: "wedding-ef203",
+      storageBucket: "wedding-ef203.firebasestorage.app",
+      messagingSenderId: "791365577253",
+      appId: "1:791365577253:web:018970a9904007b3e8adcc",
+      measurementId: "G-C086ETKN7J"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db  = getFirestore(app); // Firestore 資料庫 [web:85]
+
+    // Collection 名稱，專門存照片清單
+    const photosCol = collection(db, "wedding_photos");
+
+    const fileInput    = document.getElementById("fileInput");
+    const uploadBtn    = document.getElementById("uploadBtn");
+    const uploadStatus = document.getElementById("uploadStatus");
+    const gallery      = document.getElementById("gallery");
+    const emptyMsg     = document.getElementById("emptyMsg");
+
+    function setStatus(text) {
+      uploadStatus.textContent = text || "";
+    }
+
+    // 從 Firestore 讀出所有照片
+    async function loadGallery() {
+      gallery.innerHTML = "";
+      emptyMsg.style.display = "none";
+      setStatus("");
+
+      try {
+        const q = query(photosCol, orderBy("createdAt", "desc")); // 依時間排序 [web:85]
+        const snap = await getDocs(q);
+
+        if (snap.empty) {
+          emptyMsg.style.display = "block";
+          return;
+        }
+
+        snap.forEach(docSnap => {
+          const data = docSnap.data();
+          const url = data.url;
+          const publicId = data.publicId || docSnap.id;
+
+          const div = document.createElement("div");
+          div.className = "photo-item";
+
+          const img = document.createElement("img");
+          img.src = url;
+          img.alt = publicId;
+
+          const nameDiv = document.createElement("div");
+          nameDiv.className = "photo-name";
+          nameDiv.textContent = publicId;
+
+          const btns = document.createElement("div");
+          btns.className = "photo-buttons";
+
+          const downBtn = document.createElement("button");
+          downBtn.className = "btn-primary";
+          downBtn.textContent = "下載";
+          downBtn.addEventListener("click", () => {
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = publicId + ".jpg";
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+          });
+
+          btns.appendChild(downBtn);
+          // 這裡暫時不提供「刪除雲端檔案」，避免不小心刪錯
+
+          div.appendChild(img);
+          div.appendChild(nameDiv);
+          div.appendChild(btns);
+          gallery.appendChild(div);
+        });
+      } catch (e) {
+        console.error(e);
+        setStatus("讀取照片失敗：" + e.message);
+      }
+    }
+
+    // 上傳到 Cloudinary（unsigned upload）[web:84][web:68]
+    async function uploadToCloudinary(file) {
+      const url = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`;
+
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("upload_preset", UPLOAD_PRESET);
+      if (FOLDER) formData.append("folder", FOLDER);
+
+      const res = await fetch(url, {
+        method: "POST",
+        body: formData
+      });
+
+      if (!res.ok) {
+        throw new Error("Cloudinary 上傳失敗：" + res.status);
+      }
+
+      return res.json(); // secure_url, public_id 等 [web:84]
+    }
+
+    // 上傳流程：Cloudinary → Firestore
+    async function handleUpload() {
+      const files = Array.from(fileInput.files || []);
+      if (!files.length) {
+        alert("請先選擇至少一張照片");
+        return;
+      }
+
+      const maxSize = 10 * 1024 * 1024;
+      const valid = [];
+
+      for (const f of files) {
+        if (!f.type.startsWith("image/")) {
+          alert(`「${f.name}」不是圖片，已略過。`);
+          continue;
+        }
+        if (f.size > maxSize) {
+          alert(`「${f.name}」超過 10MB，已略過。`);
+          continue;
+        }
+        valid.push(f);
+      }
+
+      if (!valid.length) return;
+
+      uploadBtn.disabled = true;
+      setStatus("上傳中，請稍候…");
+
+      try {
+        for (const file of valid) {
+          // 1. 上傳圖片到 Cloudinary
+          const result = await uploadToCloudinary(file);
+          const secureUrl = result.secure_url;
+          const publicId  = result.public_id;
+
+          // 2. 把照片資訊寫到 Firestore [web:85][web:82]
+          await addDoc(photosCol, {
+            publicId,
+            url: secureUrl,
+            createdAt: serverTimestamp()
+          });
+        }
+
+        setStatus("上傳完成！");
+        fileInput.value = "";
+        await loadGallery();
+      } catch (e) {
+        console.error(e);
+        setStatus(e.message || "上傳失敗");
+      } finally {
+        uploadBtn.disabled = false;
+        setTimeout(() => setStatus(""), 4000);
+      }
+    }
+
+    uploadBtn.addEventListener("click", handleUpload);
+
+    // 初次載入頁面時讀一次 Firestore
+    loadGallery();
+  </script>
+</body>
+</html>
