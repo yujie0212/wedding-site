@@ -32,6 +32,7 @@
     .btn-primary { background: #1976d2; color: #fff; }
     .btn-primary:disabled { background: #90caf9; cursor: default; }
     .btn-danger { background: #e53935; color: #fff; }
+    .btn-secondary { background: #555; color: #fff; }
     .gallery {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
@@ -57,6 +58,10 @@
       color: #555;
       word-break: break-all;
     }
+    .photo-meta {
+      font-size: 11px;
+      color: #777;
+    }
     .photo-buttons {
       display: flex;
       justify-content: center;
@@ -81,15 +86,15 @@
 
   <div class="card upload-area">
     <h2>上傳照片</h2>
+    <p style="font-size: 12px; color:#666;">
+      每台裝置第一次進來會自動建立一個「匿名帳號」，<br />
+      只有上傳這張照片的那個帳號可以刪除自己的照片。
+    </p>
     <input id="fileInput" type="file" accept="image/*" multiple />
     <br />
     <button id="uploadBtn" class="btn-primary">上傳選取的照片</button>
     <div id="uploadStatus" class="status"></div>
-    <p style="font-size: 12px; color:#666; margin-top:8px;">
-      手機可以直接選相簿或用相機拍照。<br />
-      照片會存到 Cloudinary，照片清單存到 Firebase Firestore，<br />
-      所有裝置打開同一個網址都會看到同一批照片。
-    </p>
+    <p id="userInfo" class="status" style="font-size: 12px;"></p>
   </div>
 
   <div class="card">
@@ -98,14 +103,13 @@
     <p id="emptyMsg" class="empty" style="display:none;">目前沒有任何照片。</p>
   </div>
 
-  <!-- Cloudinary + Firebase (Firestore) -->
   <script type="module">
-    // ===== Cloudinary 設定（改成你的）=====
-    const CLOUD_NAME    = "dc1cbrfs8";        // 你的 cloud name
-    const UPLOAD_PRESET = "wedding_unsigned"; // 你剛建立的 unsigned preset 名稱
-    const FOLDER        = "wedding-photos";   // 選擇的資料夾名稱
+    // ===== Cloudinary 設定 =====
+    const CLOUD_NAME    = "dclcbrfs8";        // 你的 cloud name
+    const UPLOAD_PRESET = "wedding_unsigned"; // unsigned upload preset 名稱
+    const FOLDER        = "wedding-photos";   // 資料夾名稱
 
-    // ===== Firebase 設定（這裡貼回你原本的 firebaseConfig）=====
+    // ===== Firebase 設定 =====
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
     import {
       getFirestore,
@@ -114,8 +118,14 @@
       getDocs,
       query,
       orderBy,
-      serverTimestamp
+      serverTimestamp,
+      deleteDoc
     } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
+    import {
+      getAuth,
+      onAuthStateChanged,
+      signInAnonymously
+    } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyBzK8lLQTr_Z3dn-TNOUslX1sAw3PV9TY0",
@@ -128,29 +138,55 @@
     };
 
     const app = initializeApp(firebaseConfig);
-    const db  = getFirestore(app); // Firestore 資料庫 [web:85]
+    const db  = getFirestore(app);
+    const auth = getAuth(app);
 
-    // Collection 名稱，專門存照片清單
     const photosCol = collection(db, "wedding_photos");
 
     const fileInput    = document.getElementById("fileInput");
     const uploadBtn    = document.getElementById("uploadBtn");
     const uploadStatus = document.getElementById("uploadStatus");
+    const userInfo     = document.getElementById("userInfo");
     const gallery      = document.getElementById("gallery");
     const emptyMsg     = document.getElementById("emptyMsg");
+
+    let currentUser = null; // 目前登入的匿名使用者
 
     function setStatus(text) {
       uploadStatus.textContent = text || "";
     }
 
+    function setUserInfo() {
+      if (!currentUser) {
+        userInfo.textContent = "正在建立匿名帳號...";
+      } else {
+        userInfo.textContent = "這台裝置的匿名 ID：" + currentUser.uid;
+      }
+    }
+
+    // 先處理 Firebase 匿名登入 [web:143][web:146]
+    onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        currentUser = user;
+        setUserInfo();
+        await loadGallery(); // 有 uid 再載入清單
+      } else {
+        setUserInfo();
+        await signInAnonymously(auth);
+      }
+    });
+
     // 從 Firestore 讀出所有照片
     async function loadGallery() {
       gallery.innerHTML = "";
       emptyMsg.style.display = "none";
-      setStatus("");
+      if (!currentUser) {
+        setUserInfo();
+        return;
+      }
 
       try {
-        const q = query(photosCol, orderBy("createdAt", "desc")); // 依時間排序 [web:85]
+        const q = query(photosCol, orderBy("createdAt", "desc"));
         const snap = await getDocs(q);
 
         if (snap.empty) {
@@ -162,6 +198,10 @@
           const data = docSnap.data();
           const url = data.url;
           const publicId = data.publicId || docSnap.id;
+          const ownerId = data.ownerId || "(未知)";
+          const createdAt = data.createdAt?.toDate
+            ? data.createdAt.toDate().toLocaleString()
+            : "";
 
           const div = document.createElement("div");
           div.className = "photo-item";
@@ -174,9 +214,14 @@
           nameDiv.className = "photo-name";
           nameDiv.textContent = publicId;
 
+          const metaDiv = document.createElement("div");
+          metaDiv.className = "photo-meta";
+          metaDiv.textContent = "上傳者ID: " + ownerId + (createdAt ? " · " + createdAt : "");
+
           const btns = document.createElement("div");
           btns.className = "photo-buttons";
 
+          // 下載按鈕
           const downBtn = document.createElement("button");
           downBtn.className = "btn-primary";
           downBtn.textContent = "下載";
@@ -188,12 +233,29 @@
             a.click();
             a.remove();
           });
-
           btns.appendChild(downBtn);
-          // 這裡暫時不提供「刪除雲端檔案」，避免不小心刪錯
+
+          // 只有 owner 才看得到刪除按鈕 [web:134]
+          if (currentUser && ownerId === currentUser.uid) {
+            const delBtn = document.createElement("button");
+            delBtn.className = "btn-danger";
+            delBtn.textContent = "刪除";
+            delBtn.addEventListener("click", async () => {
+              if (!confirm("確定要刪除這張照片嗎？（目前只刪除清單紀錄）")) return;
+              try {
+                await deleteDoc(docSnap.ref); // 刪 Firestore 紀錄
+                await loadGallery();
+              } catch (e) {
+                console.error(e);
+                alert("刪除失敗：" + e.message);
+              }
+            });
+            btns.appendChild(delBtn);
+          }
 
           div.appendChild(img);
           div.appendChild(nameDiv);
+          div.appendChild(metaDiv);
           div.appendChild(btns);
           gallery.appendChild(div);
         });
@@ -231,6 +293,10 @@
         alert("請先選擇至少一張照片");
         return;
       }
+      if (!currentUser) {
+        alert("匿名登入尚未完成，請稍等幾秒再試。");
+        return;
+      }
 
       const maxSize = 10 * 1024 * 1024;
       const valid = [];
@@ -254,15 +320,14 @@
 
       try {
         for (const file of valid) {
-          // 1. 上傳圖片到 Cloudinary
           const result = await uploadToCloudinary(file);
           const secureUrl = result.secure_url;
           const publicId  = result.public_id;
 
-          // 2. 把照片資訊寫到 Firestore [web:85][web:82]
           await addDoc(photosCol, {
             publicId,
             url: secureUrl,
+            ownerId: currentUser.uid,
             createdAt: serverTimestamp()
           });
         }
@@ -280,9 +345,6 @@
     }
 
     uploadBtn.addEventListener("click", handleUpload);
-
-    // 初次載入頁面時讀一次 Firestore
-    loadGallery();
   </script>
 </body>
 </html>
